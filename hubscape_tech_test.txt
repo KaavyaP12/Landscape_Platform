@@ -1,0 +1,257 @@
+# Backend Developer Technical Test - Landscape Gardening Platform
+
+## Overview
+This technical test is designed to evaluate a backend developer's ability to work with Django monoliths, design microservice architectures, implement serverless solutions, and work with AWS services including SNS, SQS, and Lambda in the context of a landscape gardening and scheduling platform.
+
+## Test Duration
+**2-3 hours** (can be completed over multiple sessions)
+
+---
+
+## Part 1: Django Monolith Maintenance (45 minutes)
+
+### Scenario
+You're maintaining a Django landscape gardening platform with the following models:
+
+```python
+# models.py
+from django.db import models
+from django.contrib.auth.models import User
+
+class Client(models.Model):
+    name = models.CharField(max_length=200)
+    email = models.EmailField()
+    phone = models.CharField(max_length=20)
+    address = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+class Service(models.Model):
+    name = models.CharField(max_length=200)
+    description = models.TextField()
+    base_price = models.DecimalField(max_digits=10, decimal_places=2)
+    duration_hours = models.IntegerField()
+    is_active = models.BooleanField(default=True)
+
+class Appointment(models.Model):
+    client = models.ForeignKey(Client, on_delete=models.CASCADE)
+    service = models.ForeignKey(Service, on_delete=models.CASCADE)
+    scheduled_date = models.DateTimeField()
+    status = models.CharField(max_length=20, choices=[
+        ('scheduled', 'Scheduled'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled')
+    ])
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+class TeamMember(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    specialties = models.ManyToManyField(Service)
+    is_available = models.BooleanField(default=True)
+```
+
+### Tasks
+
+1. **Performance Optimization** (15 minutes)
+   - Optimize the following view to reduce database queries:
+
+```python
+def appointment_list_view(request):
+    appointments = Appointment.objects.all()
+    for appointment in appointments:
+        print(f"Appointment {appointment.id} for {appointment.client.name}")
+        print(f"  - Service: {appointment.service.name}")
+        print(f"  - Scheduled: {appointment.scheduled_date}")
+    return JsonResponse({'appointments': list(appointments.values())})
+```
+
+2. **Database Migration** (15 minutes)
+   - Create a migration to add a `priority` field to the Service model (choices: 'low', 'medium', 'high')
+   - Write a data migration to set existing services to 'medium' priority
+
+3. **API Development** (15 minutes)
+   - Create a REST API endpoint using Django REST Framework that:
+     - Lists appointments with pagination
+     - Allows filtering by date range and status
+     - Includes proper error handling and validation
+     - Implements rate limiting (50 requests per minute per user)
+
+---
+
+## Part 2: Microservice Architecture Design (30 minutes)
+
+### Scenario
+You need to break down the Django monolith into microservices. The current application handles:
+- Client management
+- Service catalog
+- Appointment scheduling
+- Team member management
+- Notification system
+- Weather integration
+
+### Tasks
+
+1. **Service Decomposition** (15 minutes)
+   - Design a microservice architecture for the landscape gardening platform
+   - Create a diagram showing:
+     - Service boundaries
+     - Data ownership
+     - Communication patterns
+   - Justify your service boundaries
+
+2. **Event-Driven Architecture** (15 minutes)
+   - Design an event-driven architecture for appointment scheduling
+   - Explain how services would communicate when:
+     - A new appointment is created
+     - Weather conditions change (affecting outdoor work)
+     - A team member becomes unavailable
+
+---
+
+## Part 3: Serverless Implementation with AWS SAM (45 minutes)
+
+### Scenario
+Implement a serverless appointment scheduling service using AWS SAM, Python, and the following AWS services:
+- Lambda functions
+- API Gateway
+- DynamoDB
+- SNS
+- SQS
+
+### Tasks
+
+1. **AWS SAM Project Setup** (10 minutes)
+   - Create a basic AWS SAM project structure
+   - Include `template.yaml` with core resources
+
+2. **Lambda Functions** (20 minutes)
+   - Implement the following Lambda functions:
+     - `create-appointment`: Validates and creates a new appointment
+     - `check-weather`: Checks weather conditions for outdoor work
+     - `send-reminder`: Sends appointment reminder notifications
+   - Include proper error handling and logging
+
+3. **DynamoDB Design** (15 minutes)
+   - Design DynamoDB tables for appointments and clients
+   - Create appropriate indexes (GSI/LSI)
+   - Write sample queries for:
+     - Get appointments by date range
+     - Get client's appointment history
+
+---
+
+## Part 4: SNS->SQS Message Queues with Lambda Background Workers (30 minutes)
+
+### Scenario
+Implement a background job processing system using SNS->SQS->Lambda pattern for handling:
+- Appointment scheduling workflows
+- Weather check notifications
+- Client reminders
+- Team member notifications
+
+### Tasks
+
+1. **SNS Topic and SQS Queue Setup** (10 minutes)
+   - Design SNS topics for different event types:
+     - `appointment-created`
+     - `weather-alert`
+     - `reminder-due`
+     - `team-notification`
+   - Create corresponding SQS queues with appropriate configurations
+
+2. **Lambda Background Workers** (20 minutes)
+   - Implement Lambda functions that process messages from SQS queues:
+     - `appointment-processor`: Processes new appointments
+     - `weather-processor`: Checks weather and sends alerts
+     - `reminder-processor`: Sends client reminders
+     - `notification-processor`: Sends team notifications
+   - Include proper error handling and retry logic
+
+---
+
+## Part 5: Practical Coding Exercise (30 minutes)
+
+### Task: Complete Appointment Scheduling Workflow
+
+Implement a complete appointment scheduling workflow that:
+
+1. **Receives an appointment request** via API Gateway
+2. **Validates the appointment** (check availability, weather conditions)
+3. **Schedules the appointment** asynchronously
+4. **Sends confirmation** to the client
+5. **Notifies the team** about the new appointment
+6. **Handles failures** gracefully with appropriate retries
+
+**Requirements:**
+- Use AWS SAM for deployment
+- Implement proper error handling and logging
+- Include unit tests for critical functions
+- Handle edge cases (weather issues, team unavailability, etc.)
+
+**Deliverables:**
+- Complete AWS SAM project with all necessary files
+- Unit tests for core functions
+- Architecture diagram
+- Deployment instructions
+
+---
+
+## Evaluation Criteria
+
+### Technical Skills (40%)
+- Code quality and best practices
+- Proper use of AWS services
+- Error handling and edge cases
+- Performance considerations
+
+### Architecture Design (30%)
+- Service decomposition rationale
+- Data consistency strategies
+- Scalability considerations
+- Security implementation
+
+### Problem Solving (20%)
+- Approach to complex problems
+- Trade-off analysis
+- Debugging and troubleshooting
+- Optimization strategies
+
+### Communication (10%)
+- Code documentation
+- Architecture explanations
+- Clear and concise responses
+- Professional presentation
+
+---
+
+## Submission Guidelines
+
+1. **Code Repository**: Provide a GitHub repository with all code
+2. **Documentation**: Include README with setup instructions
+3. **Architecture**: Provide diagrams (Mermaid, http://Draw.io, or similar)
+4. **Testing**: Include test cases and coverage reports
+5. **Deployment**: Provide deployment scripts and instructions
+
+## Bonus Points
+
+- Implement CI/CD pipeline
+- Add monitoring and alerting
+- Include security best practices
+- Performance optimization
+- Cost optimization strategies
+- Infrastructure as Code (CDK/Terraform)
+
+---
+
+## Questions for Discussion
+
+1. How would you handle data consistency between microservices in a scheduling system?
+2. What are the trade-offs between serverless and containerized microservices for a landscaping platform?
+3. How would you implement distributed tracing across services for appointment tracking?
+4. What strategies would you use for handling high-volume appointment scheduling?
+5. How would you ensure security in a microservice architecture for client data?
+
+---
+
+**Note**: This test is designed to be challenging but fair. Focus on demonstrating your thought process, architectural understanding, and practical implementation skills. Quality over quantity is preferred.

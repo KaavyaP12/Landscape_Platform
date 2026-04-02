@@ -1,84 +1,252 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Appointment Scheduling Service
+Description: Background processing with SNS -> SQS -> Lambda
 
 Globals:
   Function:
     Runtime: python3.12
     Timeout: 10
     MemorySize: 256
-    Environment:
-      Variables:
-        APPOINTMENTS_TABLE: !Ref AppointmentsTable
-        REMINDER_TOPIC_ARN: !Ref ReminderTopic
 
 Resources:
-  AppointmentApi:
-    Type: AWS::Serverless::Api
-    Properties:
-      StageName: Prod
-
-  AppointmentsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: appointments-table
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: appointment_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: appointment_id
-          KeyType: HASH
-
-  ReminderTopic:
+  # -----------------------------
+  # SNS Topics
+  # -----------------------------
+  AppointmentCreatedTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: appointment-reminders
+      TopicName: appointment-created
 
-  CreateAppointmentFunction:
+  WeatherAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: weather-alert
+
+  ReminderDueTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: reminder-due
+
+  TeamNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: team-notification
+
+  # -----------------------------
+  # DLQs
+  # -----------------------------
+  AppointmentDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: appointment-created-dlq
+
+  WeatherDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: weather-alert-dlq
+
+  ReminderDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: reminder-due-dlq
+
+  TeamNotificationDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: team-notification-dlq
+
+  # -----------------------------
+  # SQS Queues
+  # -----------------------------
+  AppointmentCreatedQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: appointment-created-queue
+      VisibilityTimeout: 30
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt AppointmentDLQ.Arn
+        maxReceiveCount: 3
+
+  WeatherAlertQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: weather-alert-queue
+      VisibilityTimeout: 30
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt WeatherDLQ.Arn
+        maxReceiveCount: 3
+
+  ReminderDueQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: reminder-due-queue
+      VisibilityTimeout: 30
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ReminderDLQ.Arn
+        maxReceiveCount: 3
+
+  TeamNotificationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: team-notification-queue
+      VisibilityTimeout: 30
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt TeamNotificationDLQ.Arn
+        maxReceiveCount: 3
+
+  # -----------------------------
+  # SNS -> SQS Subscriptions
+  # -----------------------------
+  AppointmentCreatedSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AppointmentCreatedTopic
+      Protocol: sqs
+      Endpoint: !GetAtt AppointmentCreatedQueue.Arn
+
+  WeatherAlertSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref WeatherAlertTopic
+      Protocol: sqs
+      Endpoint: !GetAtt WeatherAlertQueue.Arn
+
+  ReminderDueSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref ReminderDueTopic
+      Protocol: sqs
+      Endpoint: !GetAtt ReminderDueQueue.Arn
+
+  TeamNotificationSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref TeamNotificationTopic
+      Protocol: sqs
+      Endpoint: !GetAtt TeamNotificationQueue.Arn
+
+  # -----------------------------
+  # Queue Policies
+  # -----------------------------
+  AppointmentQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref AppointmentCreatedQueue]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: sqs:SendMessage
+            Resource: !GetAtt AppointmentCreatedQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref AppointmentCreatedTopic
+
+  WeatherQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref WeatherAlertQueue]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: sqs:SendMessage
+            Resource: !GetAtt WeatherAlertQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref WeatherAlertTopic
+
+  ReminderQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref ReminderDueQueue]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: sqs:SendMessage
+            Resource: !GetAtt ReminderDueQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref ReminderDueTopic
+
+  TeamNotificationQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref TeamNotificationQueue]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: sqs:SendMessage
+            Resource: !GetAtt TeamNotificationQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref TeamNotificationTopic
+
+  # -----------------------------
+  # Background Workers
+  # -----------------------------
+  AppointmentProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: src/create_appointment/
+      CodeUri: src/appointment_processor/
       Handler: app.lambda_handler
+      Environment:
+        Variables:
+          WEATHER_ALERT_TOPIC_ARN: !Ref WeatherAlertTopic
+          REMINDER_DUE_TOPIC_ARN: !Ref ReminderDueTopic
+          TEAM_NOTIFICATION_TOPIC_ARN: !Ref TeamNotificationTopic
       Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref AppointmentsTable
         - SNSPublishMessagePolicy:
-            TopicName: !GetAtt ReminderTopic.TopicName
-      Events:
-        CreateAppointmentApi:
-          Type: Api
-          Properties:
-            RestApiId: !Ref AppointmentApi
-            Path: /appointments
-            Method: post
-
-  CheckWeatherFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: src/check_weather/
-      Handler: app.lambda_handler
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: !Ref AppointmentsTable
-      Events:
-        CheckWeatherApi:
-          Type: Api
-          Properties:
-            RestApiId: !Ref AppointmentApi
-            Path: /appointments/weather-check
-            Method: post
-
-  SendReminderFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: src/send_reminder/
-      Handler: app.lambda_handler
-      Policies:
+            TopicName: !GetAtt WeatherAlertTopic.TopicName
         - SNSPublishMessagePolicy:
-            TopicName: !GetAtt ReminderTopic.TopicName
+            TopicName: !GetAtt ReminderDueTopic.TopicName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TeamNotificationTopic.TopicName
+      Events:
+        AppointmentQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt AppointmentCreatedQueue.Arn
+            BatchSize: 5
 
-Outputs:
-  ApiUrl:
-    Description: API Gateway endpoint
-    Value: !Sub "https://${AppointmentApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+  WeatherProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/weather_processor/
+      Handler: app.lambda_handler
+      Events:
+        WeatherQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt WeatherAlertQueue.Arn
+            BatchSize: 5
+
+  ReminderProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/reminder_processor/
+      Handler: app.lambda_handler
+      Events:
+        ReminderQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ReminderDueQueue.Arn
+            BatchSize: 5
+
+  NotificationProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/notification_processor/
+      Handler: app.lambda_handler
+      Events:
+        TeamNotificationQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt TeamNotificationQueue.Arn
+            BatchSize: 5
