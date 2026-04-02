@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Appointment Scheduling Service
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 10
+    MemorySize: 256
+    Environment:
+      Variables:
+        APPOINTMENTS_TABLE: !Ref AppointmentsTable
+        REMINDER_TOPIC_ARN: !Ref ReminderTopic
+
+Resources:
+  AppointmentApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+
+  AppointmentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: appointments-table
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: appointment_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: appointment_id
+          KeyType: HASH
+
+  ReminderTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: appointment-reminders
+
+  CreateAppointmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/create_appointment/
+      Handler: app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AppointmentsTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt ReminderTopic.TopicName
+      Events:
+        CreateAppointmentApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AppointmentApi
+            Path: /appointments
+            Method: post
+
+  CheckWeatherFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/check_weather/
+      Handler: app.lambda_handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref AppointmentsTable
+      Events:
+        CheckWeatherApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AppointmentApi
+            Path: /appointments/weather-check
+            Method: post
+
+  SendReminderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/send_reminder/
+      Handler: app.lambda_handler
+      Policies:
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt ReminderTopic.TopicName
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint
+    Value: !Sub "https://${AppointmentApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
